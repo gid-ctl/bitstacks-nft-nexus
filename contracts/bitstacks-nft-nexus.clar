@@ -243,3 +243,57 @@
         (ok true)
     )
 )
+
+(define-public (unstake-nft (token-id uint))
+    (let
+        (
+            (token (unwrap! (get-token-info token-id) err-invalid-token))
+            (rewards (unwrap! (get-staking-rewards token-id) err-not-staked))
+        )
+        (asserts! (is-eq tx-sender (get owner token)) err-not-token-owner)
+        (asserts! (get is-staked token) err-not-staked)
+        
+        ;; Calculate and distribute final rewards
+        (try! (claim-staking-rewards token-id))
+        
+        (map-set tokens
+            { token-id: token-id }
+            (merge token { 
+                is-staked: false,
+                stake-timestamp: u0
+            })
+        )
+        (var-set total-staked (- (var-get total-staked) u1))
+        (ok true)
+    )
+)
+
+;; Read-Only Functions
+(define-read-only (get-token-info (token-id uint))
+    (map-get? tokens { token-id: token-id })
+)
+
+(define-read-only (get-listing (token-id uint))
+    (map-get? token-listings { token-id: token-id })
+)
+
+(define-read-only (get-fractional-shares (token-id uint) (owner principal))
+    (map-get? fractional-ownership { token-id: token-id, owner: owner })
+)
+
+(define-read-only (get-staking-rewards (token-id uint))
+    (map-get? staking-rewards { token-id: token-id })
+)
+
+(define-read-only (calculate-rewards (token-id uint))
+    (let
+        (
+            (token (unwrap! (get-token-info token-id) err-invalid-token))
+            (rewards (unwrap! (get-staking-rewards token-id) err-not-staked))
+            (blocks-staked (- block-height (get stake-timestamp token)))
+            (yield-per-block (/ (var-get yield-rate) u52560)) ;; Approximate blocks per year
+            (new-rewards (* blocks-staked yield-per-block))
+        )
+        (ok (+ (get accumulated-yield rewards) new-rewards))
+    )
+)
