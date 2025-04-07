@@ -189,3 +189,57 @@
         (ok true)
     )
 )
+
+;; Fractional Ownership Functions
+(define-public (transfer-shares (token-id uint) (recipient principal) (share-amount uint))
+    (let
+        (
+            (sender-shares (unwrap! (get-fractional-shares token-id tx-sender) err-insufficient-balance))
+            (current-recipient-shares (default-to { shares: u0 } (get-fractional-shares token-id recipient)))
+            (recipient-new-shares (unwrap! (safe-add (get shares current-recipient-shares) share-amount) err-overflow))
+        )
+        (asserts! (validate-recipient recipient) err-invalid-recipient)
+        (asserts! (>= (get shares sender-shares) share-amount) err-insufficient-balance)
+        
+        ;; Update sender's shares
+        (map-set fractional-ownership
+            { token-id: token-id, owner: tx-sender }
+            { shares: (- (get shares sender-shares) share-amount) }
+        )
+        
+        ;; Update recipient's shares
+        (map-set fractional-ownership
+            { token-id: token-id, owner: recipient }
+            { shares: recipient-new-shares }
+        )
+        (ok true)
+    )
+)
+
+;; Staking Functions
+(define-public (stake-nft (token-id uint))
+    (let
+        (
+            (token (unwrap! (get-token-info token-id) err-invalid-token))
+        )
+        (asserts! (is-eq tx-sender (get owner token)) err-not-token-owner)
+        (asserts! (not (get is-staked token)) err-already-staked)
+        
+        (map-set tokens
+            { token-id: token-id }
+            (merge token { 
+                is-staked: true,
+                stake-timestamp: block-height
+            })
+        )
+        (map-set staking-rewards
+            { token-id: token-id }
+            {
+                accumulated-yield: u0,
+                last-claim: block-height
+            }
+        )
+        (var-set total-staked (+ (var-get total-staked) u1))
+        (ok true)
+    )
+)
